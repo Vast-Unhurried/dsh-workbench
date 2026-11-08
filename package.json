@@ -1,0 +1,37 @@
+{
+  "name": "@local/dsh-workbench",
+  "version": "3.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Workbench: a private shelf of configured volumes for everyday, non-coding work. Boards, sub-boards, fixed prompts, skill selections, remembered model and reasoning choices, to-dos, reminders, notes and per-board working areas all stay intact; the workbench page and its Settings section share one press vocabulary — cloth covers, a row of mini cover fronts, an inner page and a day drawer.",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "fonts/**"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

@@ -1,0 +1,34 @@
+# The Workbench bundle.
+#
+# Two rows:
+#   - dsh-workbench     the plugin itself: the durable board document, the
+#                       workspace route, and the browser half that registers the
+#                       sidebar entry, the shelf and the composer controls.
+#   - preset-workbench-chat
+#                       the plain-chat agent preset the 聊天 board runs under.
+#                       Declaring it as a real preset is what makes the NATIVE
+#                       header chip render "聊天模式" — no chip is replaced or
+#                       shadowed, so ordinary Sessions keep the shipped one.
+- insert:
+    - id: dsh-workbench
+      name: '@local/dsh-workbench'
+    - id: preset-workbench-chat
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: workbench-chat
+        name: 聊天模式
+        description: 纯聊天看图：不附带系统说明，也不调用任何工具。
+        order: 4
+        plugins:
+          # The persona keeps the model on plain conversation. It is the only
+          # instruction this preset adds. Tool masking for this preset is done by
+          # the Workbench Host half on the agent's own scope, not by a row here:
+          # a preset row is only mounted while its module can be resolved from the
+          # profile, and a row that cannot start fails the WHOLE preset, which
+          # would make the 聊天 board unopenable rather than merely chatty.
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: 你是 DeepSeek Harness 工作台的聊天助手。用户在这里进行日常的纯聊天与看图交流。
+              complete: true
+              includeRuntimeContext: false
