@@ -2207,6 +2207,8 @@ body[data-ds-dark-theme] .wb_headerAction{
 
     /** In-flight directory validation, keyed by path. */
     const directoryPending = new Map();
+    /** Workspace registration ids keyed by their absolute path. */
+    const workspaceIds = new Map();
     /** The Host's default working area, remembered after the first read. */
     let workspaceDefaultPath = '';
     /** Session ids already created, keyed by board key. */
@@ -2587,14 +2589,17 @@ body[data-ds-dark-theme] .wb_headerAction{
         if (busy) return;
         const ctx = pluginContext;
         if (ctx === null || ctx === undefined) return;
+        const uiWorkspace = ctx.get('uiWorkspace');
+        // Check navigation before creating: a missing service must not leave a
+        // fresh Session recorded in the document without a way to open it.
+        if (uiWorkspace === undefined || uiWorkspace === null || typeof uiWorkspace.openSession !== 'function') {
+          setFailure(t('error.sessionsUnavailable'));
+          return;
+        }
         setBusy(true);
         setFailure('');
         createBoardSession(ctx, location.board, location.child, location.key)
           .then((createdSessionId) => {
-            const uiWorkspace = ctx.get('uiWorkspace');
-            if (uiWorkspace === undefined || uiWorkspace === null || typeof uiWorkspace.openSession !== 'function') {
-              throw new Error(t('error.sessionsUnavailable'));
-            }
             uiWorkspace.openSession(createdSessionId);
           })
           .catch((problem) => {
@@ -3173,14 +3178,14 @@ body[data-ds-dark-theme] .wb_headerAction{
 
     /**
      * Ensure a board's working directory exists, without registering it as a
-     * DSH Workspace.
+     * DSH Workspace here.
      *
-     * Workbench Sessions are created with `cwd` rather than `workspaceId`, so
-     * they do not join the shell's workspace blank-Session pool. The directory
-     * still has to exist before `session/create`: the Host's
+     * The directory still has to exist before `session/create`; the Host's
      * `/workspace/ensure` route validates the same Windows path rules and
-     * `mkdir`s it without changing the document's shared default. The answer is
-     * shared by concurrent opens of the same path.
+     * `mkdir`s it without changing the document's shared default. Workspace
+     * registration itself is handled separately by {@link ensureWorkspace},
+     * because the shell needs a Workspace to navigate to the Session. The
+     * answer is shared by concurrent opens of the same path.
      * @param board - the main board whose working area is needed.
      * @returns the absolute path, or undefined when the Host refused it.
      */
@@ -3241,6 +3246,35 @@ body[data-ds-dark-theme] .wb_headerAction{
     }
 
     /**
+     * Resolve the DSH Workspace that owns a board's working area.
+     *
+     * Newer shells only navigate to a Session through a registered Workspace;
+     * a Session created with a bare `cwd` is addressable but `openSession()`
+     * falls back to the "choose a workspace" screen. Registering the board's
+     * directory as a Workspace is idempotent, and the Workspace id lets the
+     * Session be created and opened in one navigation action.
+     * @param ctx - client plugin context.
+     * @param path - absolute board working area.
+     * @returns the Workspace id, or undefined when the service is unavailable.
+     */
+    async function ensureWorkspace(ctx, path) {
+      const cached = workspaceIds.get(path);
+      if (cached !== undefined) return cached;
+      const workspaces = ctx.get('workspaces');
+      if (workspaces === undefined || workspaces === null || typeof workspaces.create !== 'function') return undefined;
+      try {
+        const view = await workspaces.create({ path });
+        if (view !== null && typeof view === 'object' && typeof view.workspaceId === 'string' && view.workspaceId.length > 0) {
+          workspaceIds.set(path, view.workspaceId);
+          return view.workspaceId;
+        }
+      } catch {
+        /* an older shell may not register Workspaces; keep the cwd fallback */
+      }
+      return undefined;
+    }
+
+    /**
      * The board identity beside the mode chip.
      *
      * Stores the ids, not localized names: the header action resolves them
@@ -3277,10 +3311,12 @@ body[data-ds-dark-theme] .wb_headerAction{
         // the Host-side `model/selection` write that happened outside this tab.
         const latestDocument = await store.load({ force: true }).catch(() => store.current());
         const modelSelection = modelSelectionForBoard(latestDocument, key, ctx);
-        // `cwd` (not `workspaceId`) is deliberate: a workbench board Session is
-        // not attached to the user's Workspace pool, so a later shell "new
-        // conversation in this workspace" cannot reuse its blank Session.
-        const request = { cwd: workspacePath };
+        // A Workspace-attached Session is the one the shell can navigate to
+        // directly. A bare `cwd` Session remains the fallback for older shells
+        // that have no Workspace service, but in the current shell it lands on
+        // the workspace chooser instead of the conversation.
+        const workspaceId = await ensureWorkspace(ctx, workspacePath);
+        const request = workspaceId === undefined ? { cwd: workspacePath } : { workspaceId };
         const preset = agentPresetOf(board, child);
         if (preset !== 'standard') request.agentPreset = preset;
         const sessionId = await sessions.create(request);
@@ -3312,23 +3348,36 @@ body[data-ds-dark-theme] .wb_headerAction{
      */
     async function openBoard(ctx, board, child, options) {
       const uiWorkspace = ctx.get('uiWorkspace');
+      // Validate navigation before creating anything: a shell without
+      // `uiWorkspace` must report the failure, not leave a brand-new Session
+      // recorded in the document with no way to open it.
+      if (uiWorkspace === undefined || uiWorkspace === null || typeof uiWorkspace.openSession !== 'function') {
+        throw new Error(translate()('error.sessionsUnavailable'));
+      }
       const key = child === undefined ? board.id : `${board.id}/${child.id}`;
       let sessionId;
+      let createdHere = false;
 
       if (options?.fresh === true) {
         sessionId = await createBoardSession(ctx, board, child, key);
+        createdHere = true;
       } else {
         sessionId = boardSessions.get(key);
         if (sessionId === undefined) {
           sessionId = await createBoardSession(ctx, board, child, key);
+          createdHere = true;
         } else if (!sessionLabels.has(sessionId)) {
           sessionLabels.set(sessionId, boardLabel(board, child));
           notifyLabels();
         }
       }
-
-      if (uiWorkspace === undefined || uiWorkspace === null || typeof uiWorkspace.openSession !== 'function') {
-        throw new Error(translate()('error.sessionsUnavailable'));
+      // Pre-workspace builds recorded `cwd`-only Sessions. Registering the
+      // board's working area gives the shell a Workspace for that path; a
+      // Session created just above already did this, so only the recorded path
+      // pays for the second lookup.
+      if (!createdHere) {
+        const workspacePath = await ensureDirectory(board);
+        if (workspacePath !== undefined) await ensureWorkspace(ctx, workspacePath);
       }
       uiWorkspace.openSession(sessionId);
       return sessionId;
@@ -3455,10 +3504,23 @@ body[data-ds-dark-theme] .wb_headerAction{
         document !== null && typeof document === 'object' && document.sessions !== null && typeof document.sessions === 'object'
           ? document.sessions
           : {};
+      const now = Date.now();
+      // The cleanup was written for blank Sessions left by older `cwd`-only
+      // builds. Now that new board Sessions are created with a `workspaceId`,
+      // they are also blank until the first message and are listed in the same
+      // Workspace. Never archive the newest conversation of a board, the
+      // currently retained one, or one created moments ago: those are exactly
+      // what a user gets after clicking “new conversation” and has not typed
+      // into yet.
+      const BLANK_SESSION_GRACE_MS = 10 * 60 * 1000;
       for (const [key, value] of Object.entries(recorded)) {
         for (const sessionId of sessionListOf(value)) {
           const summary = byId[sessionId];
           if (summary === null || typeof summary !== 'object' || summary.blank !== true || !attached.has(sessionId)) continue;
+          if (boardSessions.get(key) === sessionId) continue;
+          if (summary.running === true || (Number(summary.retainedBy?.mainView) || 0) > 0) continue;
+          const updatedAt = Number(summary.updatedAt);
+          if (Number.isFinite(updatedAt) && now - updatedAt < BLANK_SESSION_GRACE_MS) continue;
           jobs.push(
             (async () => {
               try {
@@ -3571,7 +3633,7 @@ body[data-ds-dark-theme] .wb_headerAction{
      * a page can keep running an older build than the one on disk — and nothing
      * on screen would say so. This stamp is printed in the ledger's footer.
      */
-    const BUILD_STAMP = { at: "2026-11-11T11:40:18.083Z", rev: "f95921c6" };
+    const BUILD_STAMP = { at: "2026-11-11T14:14:39.656Z", rev: "0d5281ba" };
 
     /** Two digits, zero padded. */
     function pad2(value) {
@@ -9850,15 +9912,20 @@ body[data-ds-dark-theme] .wb_headerAction{
        * @param childId - removed child id, or undefined for the whole board.
        */
       const dropBoardCache = (boardId, childId) => {
-        const dropped = new Set();
         for (const key of [...boardSessions.keys()]) {
           const matches = childId === undefined ? key === boardId || key.startsWith(`${boardId}/`) : key === `${boardId}/${childId}`;
-          if (!matches) continue;
-          const sessionId = boardSessions.get(key);
-          if (typeof sessionId === 'string') dropped.add(sessionId);
-          boardSessions.delete(key);
+          if (matches) boardSessions.delete(key);
         }
-        for (const sessionId of dropped) sessionLabels.delete(sessionId);
+        // `boardSessions` only keeps the latest Session per board key; the
+        // label cache holds every recorded conversation. Walk the labels too,
+        // otherwise deleting a board leaves its older Session ids and labels in
+        // memory until the next page load.
+        for (const [sessionId, label] of [...sessionLabels.entries()]) {
+          const matchesBoard = label !== null && typeof label === 'object' && label.boardId === boardId;
+          if (!matchesBoard) continue;
+          if (childId !== undefined && label.childId !== childId) continue;
+          sessionLabels.delete(sessionId);
+        }
         notifyLabels();
       };
 
@@ -10359,7 +10426,7 @@ body[data-ds-dark-theme] .wb_headerAction{
        * would silently fall through to the workspace chooser. The dead id is
        * removed from the board's record instead, and the caller hears why.
        */
-      const openRecorded = (board, child, sessionId) => {
+      const openRecorded = async (board, child, sessionId) => {
         const key = boardKeyOf(board, child);
         if (sessionUnavailable(pluginContext, sessionId)) {
           if (boardSessions.get(key) === sessionId) boardSessions.delete(key);
@@ -10374,12 +10441,19 @@ body[data-ds-dark-theme] .wb_headerAction{
         if (uiWorkspace === undefined || uiWorkspace === null || typeof uiWorkspace.openSession !== 'function') {
           throw new Error(t('error.sessionsUnavailable'));
         }
+        // Pre-workspace builds recorded `cwd`-only Sessions. Registering the
+        // board's working area gives the shell a Workspace for that path; the
+        // exact Session is then selected by id below. `insertSessionBefore`
+        // cannot be used here: it only reorders Sessions already accounted by
+        // a Workspace and rejects a `cwd`-only id as `workspace/move-invalid`.
+        const workspacePath = await ensureDirectory(board);
+        if (workspacePath !== undefined) await ensureWorkspace(pluginContext, workspacePath);
         uiWorkspace.openSession(sessionId);
         // Open the conversation first, then reveal the sidebar on the next
         // paint. Toggling the sidebar in front of `openSession` made the return
         // key wait for a shell layout change before the Chat painted.
         scheduleAfterPaint(unfoldSidebar);
-        return Promise.resolve(sessionId);
+        return sessionId;
       };
 
       /**

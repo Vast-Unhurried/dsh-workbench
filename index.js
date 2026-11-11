@@ -1415,8 +1415,10 @@ function sendTrustFailure(res, rejection) {
   res.setHeader("content-length", Buffer.byteLength(message, "utf8"));
   res.setHeader("cache-control", "no-store");
   res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
   res.setHeader("x-frame-options", "DENY");
   res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader("cross-origin-resource-policy", "same-origin");
   res.end(message);
 }
 
@@ -2460,8 +2462,17 @@ function apply(ctx) {
     const connection = ctx.get("connection");
     if (connection === undefined || connection === null) {
       // `inject` should make this unreachable, but a missing trust service must
-      // fail closed: these routes can read and rewrite durable user data.
+      // fail closed: these routes can read and rewrite durable user data. Keep
+      // the same no-store/nosniff/frame policy as an ordinary failure.
       res.statusCode = 503;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.setHeader("content-length", Buffer.byteLength("workbench trust service unavailable", "utf8"));
+      res.setHeader("cache-control", "no-store");
+      res.setHeader("x-content-type-options", "nosniff");
+      res.setHeader("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+      res.setHeader("x-frame-options", "DENY");
+      res.setHeader("referrer-policy", "no-referrer");
+      res.setHeader("cross-origin-resource-policy", "same-origin");
       res.end("workbench trust service unavailable");
       return true;
     }

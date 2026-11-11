@@ -8,6 +8,7 @@ Each board is a real DSH Session that carries its own fixed prompts, skill selec
 
 - The Workbench page and its sidebar entry: cloth covers, a row of mini cover fronts, an inner page and a today drawer.
 - Boards and sub-boards: create, rename, reorder, delete, and per-board configuration.
+- Per-board working areas: the first conversation registers the board's working area as a DSH Workspace (idempotently) so the shell can open its Sessions directly instead of showing the workspace chooser; a board may override the document's default path.
 - Per-board prompts (multi-select) and skills, remembered model and reasoning choices, and a validated working-area directory.
 - To-dos with priority, due day, search, filters and minute-accurate reminders (frame-wide toast plus optional desktop notification).
 - Notes in two blocks (`spark` / `note`) with tags, pinning, search and copy.
