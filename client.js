@@ -6,6 +6,13 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
 
     const React = require('react');
+    const ReactDOM = (() => {
+      try {
+        return require('react-dom');
+      } catch {
+        return { createPortal: (element) => element };
+      }
+    })();
     const h = React.createElement;
     const { useEffect, useLayoutEffect, useRef, useState, useMemo } = React;
 
@@ -177,6 +184,8 @@ window.__ModuleLoader__.load({
       'session.empty': '还没有会话。点 + 或右键新建。',
       'session.running': '进行中',
       'session.gone': '这段会话已归档或不存在，已从记录中移除。',
+      'session.archive': '归档会话',
+      'session.archiveFailed': '无法归档会话：{message}',
 
       // ── the boards themselves ─────────────────────────────────────────────
       'board.newName': '新板块',
@@ -376,7 +385,7 @@ window.__ModuleLoader__.load({
       'prompt.code': 'PROMPT',
       'prompt.nativeNote': '基底提示词',
       'prompt.selectedNote': '已选 {count} 条，追加在基底提示词之上',
-      'prompt.hint': '默认（基底提示词）：板块当前模式为聊天模式则沿用 Agent 预设中的聊天模式预设（workbench-chat preset）；板块当前模式为标准模式则沿用 Agent 预设中的标准模式预设（standard preset）。可同时选择多条提示词，在基底提示词的基础上按提示词库顺序依次追加。',
+      'prompt.hint': '默认（基底提示词）：聊天对话板块及其子版块固定使用聊天模式（workbench-chat），不启用其他 preset；其他板块及其子版块默认使用标准模式（standard），也可选择其他模式（ptc、minimal、cordis）。同时可选择多条提示词，在基底提示词的基础上按提示词库顺序依次追加。',
       'prompt.none': '默认',
       'prompt.library': '提示词库',
       'mode.title': '模　式',
@@ -530,6 +539,8 @@ window.__ModuleLoader__.load({
       'session.empty': 'No conversations yet. Click + or right-click to start one.',
       'session.running': 'Live',
       'session.gone': 'That conversation is archived or gone, so it was removed from the record.',
+      'session.archive': 'Archive conversation',
+      'session.archiveFailed': 'Could not archive the conversation: {message}',
 
       'board.newName': 'New board',
       'board.newChildName': 'New sub-board',
@@ -722,7 +733,7 @@ window.__ModuleLoader__.load({
       'prompt.code': 'PROMPT',
       'prompt.nativeNote': 'Base prompt',
       'prompt.selectedNote': '{count} selected, appended to the base prompt',
-      'prompt.hint': 'Default (base prompt): when the board’s current mode is chat, it follows the chat preset in Agent presets (workbench-chat preset); when the board’s current mode is standard, it follows the standard preset in Agent presets (standard preset). Select one or more prompts to append them in library order on top of the base prompt.',
+      'prompt.hint': 'Default (base prompt): the chat volume and its sub-boards are fixed to chat mode (workbench-chat), and no other preset applies; every other volume and its sub-boards default to standard mode (standard) and may also choose another mode (ptc, minimal, cordis). Several prompts can be selected at once and are appended in library order on top of the base prompt.',
       'prompt.none': 'Default',
       'prompt.library': 'Prompt library',
       'mode.title': 'Mode',
@@ -1128,6 +1139,7 @@ button.wb_contentRow{cursor:pointer}
 /* ── menus, dialogs, toasts ─────────────────────────────────────────────── */
 .wb_menu{box-sizing:border-box;position:fixed;z-index:1400;display:flex;flex-direction:column;min-width:172px;max-width:340px;padding:4px;border:1px solid var(--wb-line);border-radius:0;
   background:var(--wb-ground);box-shadow:0 12px 32px -14px color-mix(in srgb,var(--wb-ink) 42%,transparent)}
+
 .wb_menuWrap{position:relative}
 .wb_menuItem{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-height:31px;padding:5px 8px;border:0;border-radius:0;background:transparent;
   cursor:pointer;font:400 11px/18px var(--wb-text);color:var(--wb-ink);text-align:left}
@@ -1990,6 +2002,13 @@ body[data-ds-dark-theme] .wb_headerAction{
         h('path', { key: 'a', d: 'M2.75 4.4h10.5M6.4 4.4V2.9h3.2v1.5M4.2 4.4l.6 8.4h6.4l.6-8.4' }),
         h('path', { key: 'b', d: 'M6.6 6.9v3.4M9.4 6.9v3.4' }),
       );
+    const IconArchive = ({ size = 13 }) =>
+      h(
+        Svg,
+        { size, stroke: 1.35 },
+        h('path', { key: 'a', d: 'M2.7 5.1h10.6v7.2H2.7zM2.7 3.2h10.6v1.9H2.7z' }),
+        h('path', { key: 'b', d: 'M6.2 8.1h3.6' }),
+      );
     const IconCheck = ({ size = 11 }) => h(Svg, { size, stroke: 2.2 }, h('path', { d: 'M3.2 8.4l3.2 3.2 6.2-7' }));
     const IconRefresh = ({ size = 13 }) =>
       h(
@@ -2075,22 +2094,19 @@ body[data-ds-dark-theme] .wb_headerAction{
       h(Svg, { size, stroke: 1.4 }, h('path', { d: 'M4 12L12 4M6 4h6v6' }));
 
     /**
-     * The product mark: one ruled sheet, folded at the top-right.
+     * The product mark: one sheet with a folded top-right corner.
      *
-     * The page is the whole idea now: no tile, no spark, no app-frame. The
-     * outline is cut at the fold so the mark reads as paper rather than a
-     * generic file; four rules carry the content, never a word.
+     * The 36px plugin-card artwork is a paper-white page with a champagne fold
+     * on transparency; this 16px line cut is the same page with a single rule,
+     * so the mark survives the sidebar and Settings nav without a tile.
      */
     function WorkbenchMark({ size = 16 }) {
       return h(
         Svg,
-        { size, stroke: 1, linecap: 'butt' },
-        h('path', { key: 'sheet', d: 'M2.6 1.85h6.85l3.55 3.7v8.4H2.6z' }),
-        h('path', { key: 'fold', d: 'M9.45 1.85v3.7h3.55' }),
-        h('path', { key: 'rule1', d: 'M4.05 6.25h6.9' }),
-        h('path', { key: 'rule2', d: 'M4.05 8.2h6.9' }),
-        h('path', { key: 'rule3', d: 'M4.05 10.15h4.8' }),
-        h('path', { key: 'rule4', d: 'M4.05 12.1h3.1' }),
+        { size, stroke: 1.1, linecap: 'butt' },
+        h('path', { key: 'sheet', d: 'M1.8 1.2h8.7l3.7 3.7v9.9H1.8V1.2Z' }),
+        h('path', { key: 'fold', d: 'M10.5 1.2v3.7h3.7' }),
+        h('path', { key: 'rule', d: 'M4.1 11.9h7.6' }),
       );
     }
 
@@ -2171,12 +2187,26 @@ body[data-ds-dark-theme] .wb_headerAction{
       }
     }
 
+    /**
+     * Release a response body that will not be read.
+     *
+     * A non-ok fetch response still owns a stream until it is consumed or
+     * cancelled. Releasing it here keeps a burst of rejected saves, workspace
+     * lookups or skill refreshes from occupying the page's fetch pool.
+     * @param response - a fetch Response whose body is no longer needed.
+     */
+    function discardResponseBody(response) {
+      try {
+        Promise.resolve(response?.body?.cancel?.()).catch(() => {});
+      } catch {
+        /* an already-consumed or bodyless response is harmless */
+      }
+    }
+
     // ── boards, sessions, and the shared document ─────────────────────────────
 
-    /** Workspace ids already resolved, keyed by path. */
-    const workspaceIds = new Map();
-    /** In-flight workspace registration, keyed by path. */
-    const workspacePending = new Map();
+    /** In-flight directory validation, keyed by path. */
+    const directoryPending = new Map();
     /** The Host's default working area, remembered after the first read. */
     let workspaceDefaultPath = '';
     /** Session ids already created, keyed by board key. */
@@ -2358,11 +2388,7 @@ body[data-ds-dark-theme] .wb_headerAction{
         if (response.ok) {
           // The success body is not needed; release it so the connection can
           // be reused instead of waiting for a response body nobody reads.
-          try {
-            Promise.resolve(response.body?.cancel?.()).catch(() => {});
-          } catch {
-            /* an already-consumed or bodyless response is harmless */
-          }
+          discardResponseBody(response);
           return true;
         }
         let payload;
@@ -2670,14 +2696,26 @@ body[data-ds-dark-theme] .wb_headerAction{
       // own document, so a response that carries them is not one this plugin
       // should paint (or cache for every other surface).
       const seenBoardIds = new Set();
+      const liveBoardKeys = new Set();
       for (const board of value.boards) {
         if (seenBoardIds.has(board.id)) return false;
         seenBoardIds.add(board.id);
+        liveBoardKeys.add(board.id);
         const seenChildIds = new Set();
         for (const child of board.children) {
           if (seenChildIds.has(child.id)) return false;
           seenChildIds.add(child.id);
+          liveBoardKeys.add(`${board.id}/${child.id}`);
         }
+      }
+      // Every keyed map is addressed by a live board key. A stale or malformed
+      // key (for example `board/child/extra` from a hand-edited file or a broken
+      // proxy) would be ignored by rendering but could still reach a recursive
+      // parent lookup or keep orphaned records in the shared cache forever.
+      for (const field of ['settings', 'sessions', 'todos', 'notes']) {
+        if (value[field] === undefined) continue;
+        if (!isPlainRecord(value[field])) return false;
+        if (Object.keys(value[field]).some((key) => !liveBoardKeys.has(key))) return false;
       }
       // Settings reads prompt rows directly (`prompt.id`, `prompt.text`) and
       // renders them; a malformed prompt in an otherwise valid answer would
@@ -2704,15 +2742,10 @@ body[data-ds-dark-theme] .wb_headerAction{
           seenPromptIds.add(prompt.id);
         }
       }
-      // These four are consumed as maps by the pages and the settings editor;
-      // an array/null/primitive here would make `Object.entries` or a keyed
-      // lookup behave differently from the document contract. The Host always
-      // sends objects (possibly empty), so a malformed proxy answer is refused
-      // before it can enter the shared cache.
-      for (const field of ['settings', 'sessions', 'todos', 'notes']) {
-        if (value[field] !== undefined && !isPlainRecord(value[field])) return false;
-      }
+      // Session lists are consumed directly by the header and the ledger; keep
+      // their shape bounded before any consumer walks them.
       if (value.sessions !== undefined) {
+        const ownedSessionIds = new Set();
         for (const list of Object.values(value.sessions)) {
           if (
             !Array.isArray(list) ||
@@ -2720,6 +2753,14 @@ body[data-ds-dark-theme] .wb_headerAction{
             !list.every((sessionId) => typeof sessionId === 'string' && sessionId.length > 0 && sessionId.length <= MAX_ID)
           ) {
             return false;
+          }
+          // A Session belongs to exactly one board. A document that lists the
+          // same id under two keys makes the header label and the model-memory
+          // writer disagree about its owner; the Host drops the later copy on
+          // normalization, so reject the malformed answer before it is cached.
+          for (const sessionId of list) {
+            if (ownedSessionIds.has(sessionId)) return false;
+            ownedSessionIds.add(sessionId);
           }
         }
       }
@@ -2918,7 +2959,10 @@ body[data-ds-dark-theme] .wb_headerAction{
         const seq = (store.readSeq += 1);
         try {
           const response = await fetchWithTimeout(`${API}/state`, { headers: { 'cache-control': 'no-cache' } }, 15000);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (!response.ok) {
+            discardResponseBody(response);
+            throw new Error(`HTTP ${response.status}`);
+          }
           const document = await readJsonWithTimeout(response);
           if (pendingAtStart > 0 || store.pendingWrites > 0 || store.writeSeq !== writeAtStart || seq !== store.readSeq) {
             return store.current();
@@ -2975,19 +3019,17 @@ body[data-ds-dark-theme] .wb_headerAction{
               },
               30000,
             );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            if (!response.ok) {
+              discardResponseBody(response);
+              throw new Error(`HTTP ${response.status}`);
+            }
             // The Host accepted this payload. Remember it as the rollback target
             // even when a newer optimistic save has already replaced the screen;
             // a failed newer save must fall back to the last durable document,
             // not to an earlier unacknowledged edit.
             store.durable = payload;
-            // The success answer is `{saved:true}` and nothing reads it; release
-            // the body so the connection can be reused by the next save.
-            try {
-              Promise.resolve(response.body?.cancel?.()).catch(() => {});
-            } catch {
-              /* an already-consumed or bodyless response is harmless */
-            }
+            // The success answer is `{saved:true}` and nothing reads it.
+            discardResponseBody(response);
             // Announce only after the Host accepted the write, so another tab
             // never reloads a document that was still only optimistic here.
             // A superseded save must stay silent: its signal could make the
@@ -3012,7 +3054,10 @@ body[data-ds-dark-theme] .wb_headerAction{
             if (response !== null && response.ok) {
               // A save that started while this recovery read was in flight owns
               // the surface now; adopting this answer would undo it.
-              if (store.writeSeq !== seq) throw problem;
+              if (store.writeSeq !== seq) {
+                discardResponseBody(response);
+                throw problem;
+              }
               let document;
               try {
                 document = await readJsonWithTimeout(response);
@@ -3020,7 +3065,10 @@ body[data-ds-dark-theme] .wb_headerAction{
                 if (store.writeSeq !== seq) throw error;
                 document = null;
               }
-              if (store.writeSeq !== seq) throw problem;
+              if (store.writeSeq !== seq) {
+                discardResponseBody(response);
+                throw problem;
+              }
               if (isDocument(document)) {
                 // Put the durable document back on screen, but still reject:
                 // the write itself failed, so a caller must not show "saved",
@@ -3028,6 +3076,8 @@ body[data-ds-dark-theme] .wb_headerAction{
                 store.adopt(document);
                 recovered = true;
               }
+            } else if (response !== null) {
+              discardResponseBody(response);
             }
             if (!recovered) {
               // The write failed and the durable copy could not be read back.
@@ -3035,8 +3085,10 @@ body[data-ds-dark-theme] .wb_headerAction{
               // accepted as if it were saved; restore the last known document
               // and let the caller surface the failure. A newer queued save
               // owns the surface and must not be overwritten.
-              if (store.writeSeq === seq) store.document = previous;
-              store.notify();
+              if (store.writeSeq === seq) {
+                store.document = previous;
+                store.notify();
+              }
             }
             throw problem;
           }
@@ -3120,16 +3172,19 @@ body[data-ds-dark-theme] .wb_headerAction{
     }
 
     /**
-     * Resolve the workbench Workspace, registering it on first use.
+     * Ensure a board's working directory exists, without registering it as a
+     * DSH Workspace.
      *
-     * A main board may carry its own path; otherwise the shared default in the
-     * document applies. Sub-boards pass their parent board, so they inherit it.
-     * The Host validates both paths, and caching by path keeps one Session from
-     * re-registering the same directory.
+     * Workbench Sessions are created with `cwd` rather than `workspaceId`, so
+     * they do not join the shell's workspace blank-Session pool. The directory
+     * still has to exist before `session/create`: the Host's
+     * `/workspace/ensure` route validates the same Windows path rules and
+     * `mkdir`s it without changing the document's shared default. The answer is
+     * shared by concurrent opens of the same path.
+     * @param board - the main board whose working area is needed.
+     * @returns the absolute path, or undefined when the Host refused it.
      */
-    async function ensureWorkspace(ctx, board) {
-      const workspaces = ctx.get('workspaces');
-      if (workspaces === undefined || workspaces === null) return undefined;
+    async function ensureDirectory(board) {
       let path = board !== undefined && typeof board.workspace === 'string' ? board.workspace : '';
       if (path.length === 0 && typeof store.current().workspace === 'string') path = store.current().workspace;
       if (path.length === 0) path = workspaceDefaultPath;
@@ -3142,32 +3197,46 @@ body[data-ds-dark-theme] .wb_headerAction{
               path = payload.path;
               workspaceDefaultPath = path;
             }
+          } else {
+            discardResponseBody(response);
           }
         } catch {
           /* an unanswered route leaves the Host's own default in charge */
         }
       }
       if (path.length === 0) path = WORKSPACE_FALLBACK;
-      const known = workspaceIds.get(path);
-      if (known !== undefined) return known;
-      const inFlight = workspacePending.get(path);
+      const inFlight = directoryPending.get(path);
       if (inFlight !== undefined) return inFlight;
       const task = (async () => {
         try {
-          const created = await workspaces.create({ path });
-          const id = created === null || created === undefined ? undefined : created.workspaceId;
-          // A service that answers without a usable id must be treated as a
-          // failed registration, not passed on as an empty workspace id.
-          if (typeof id !== "string" || id.length === 0) return undefined;
-          workspaceIds.set(path, id);
-          return id;
+          const response = await fetchWithTimeout(
+            `${API}/workspace/ensure`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ path }),
+            },
+            15000,
+          );
+          if (!response.ok) {
+            // A client can briefly outlive an older Host after a hot reload.
+            // That Host has no `/workspace/ensure`; skip the directory probe
+            // and let `session/create` validate the existing path instead of
+            // falling back to the settings route (which would persist the
+            // board's path as the shared default).
+            if (response.status === 404) return path;
+            discardResponseBody(response);
+            return undefined;
+          }
+          const payload = await readJsonWithTimeout(response);
+          return typeof payload?.path === 'string' && payload.path.length > 0 ? payload.path : path;
         } catch {
           return undefined;
         } finally {
-          workspacePending.delete(path);
+          directoryPending.delete(path);
         }
       })();
-      workspacePending.set(path, task);
+      directoryPending.set(path, task);
       return task;
     }
 
@@ -3199,8 +3268,8 @@ body[data-ds-dark-theme] .wb_headerAction{
       const task = (async () => {
         const sessions = ctx.get('sessions');
         if (sessions === undefined || sessions === null) throw new Error(translate()('error.sessionsUnavailable'));
-        const workspaceId = await ensureWorkspace(ctx, board);
-        if (workspaceId === undefined) throw new Error(translate()('error.workspaceUnavailable'));
+        const workspacePath = await ensureDirectory(board);
+        if (workspacePath === undefined) throw new Error(translate()('error.workspaceUnavailable'));
         // Read the board's remembered selection before creating. The Session is
         // still created through the shipped service; the workbench Host applies
         // the selection immediately afterwards, without touching the deployment
@@ -3208,7 +3277,10 @@ body[data-ds-dark-theme] .wb_headerAction{
         // the Host-side `model/selection` write that happened outside this tab.
         const latestDocument = await store.load({ force: true }).catch(() => store.current());
         const modelSelection = modelSelectionForBoard(latestDocument, key, ctx);
-        const request = { workspaceId };
+        // `cwd` (not `workspaceId`) is deliberate: a workbench board Session is
+        // not attached to the user's Workspace pool, so a later shell "new
+        // conversation in this workspace" cannot reuse its blank Session.
+        const request = { cwd: workspacePath };
         const preset = agentPresetOf(board, child);
         if (preset !== 'standard') request.agentPreset = preset;
         const sessionId = await sessions.create(request);
@@ -3348,6 +3420,64 @@ body[data-ds-dark-theme] .wb_headerAction{
         });
     }
 
+    /**
+     * Retire the blank Sessions that older workbench builds registered in a
+     * user's Workspace.
+     *
+     * Before board Sessions were created with `cwd`, a Workbench board could
+     * leave a blank Session in `workspace.sessionIds`; the shell's workspace
+     * new-session action would then reuse it as if it were an ordinary blank.
+     * Only a Session that both the workbench document records and a Workspace
+     * still contains is eligible, and only while it is genuinely blank. The
+     * archive set is global, so this is safe even after a Workspace row has
+     * been removed; `forgetSession` then drops the dead id from the document.
+     * @param ctx - client plugin context.
+     * @param document - current workbench document.
+     * @returns a promise that settles after every eligible id is processed.
+     */
+    async function retireLegacyBlankBoardSessions(ctx, document) {
+      const sessions = ctx === null || ctx === undefined ? undefined : ctx.get('sessions');
+      const workspaces = ctx === null || ctx === undefined ? undefined : ctx.get('workspaces');
+      const byId = sessions?.list?.getSnapshot?.()?.byId;
+      const workspaceSnapshot = workspaces?.list?.getSnapshot?.();
+      const items = Array.isArray(workspaceSnapshot?.items) ? workspaceSnapshot.items : [];
+      if (byId === undefined || items.length === 0) return;
+      const attached = new Set();
+      for (const item of items) {
+        if (item === null || typeof item !== 'object' || !Array.isArray(item.sessionIds)) continue;
+        for (const sessionId of item.sessionIds) {
+          if (typeof sessionId === 'string' && sessionId.length > 0) attached.add(sessionId);
+        }
+      }
+      if (attached.size === 0) return;
+      const jobs = [];
+      const recorded =
+        document !== null && typeof document === 'object' && document.sessions !== null && typeof document.sessions === 'object'
+          ? document.sessions
+          : {};
+      for (const [key, value] of Object.entries(recorded)) {
+        for (const sessionId of sessionListOf(value)) {
+          const summary = byId[sessionId];
+          if (summary === null || typeof summary !== 'object' || summary.blank !== true || !attached.has(sessionId)) continue;
+          jobs.push(
+            (async () => {
+              try {
+                if (typeof workspaces.archiveSession !== 'function') return;
+                await workspaces.archiveSession(sessionId);
+              } catch {
+                return;
+              }
+              sessionLabels.delete(sessionId);
+              if (boardSessions.get(key) === sessionId) boardSessions.delete(key);
+              notifyLabels();
+              await forgetSession(key, sessionId);
+            })(),
+          );
+        }
+      }
+      await Promise.all(jobs);
+    }
+
     /** Persist one board's new Session id at the head of its list. */
     function rememberSession(key, sessionId) {
       store
@@ -3441,7 +3571,7 @@ body[data-ds-dark-theme] .wb_headerAction{
      * a page can keep running an older build than the one on disk — and nothing
      * on screen would say so. This stamp is printed in the ledger's footer.
      */
-    const BUILD_STAMP = { at: "2026-11-08T06:35:39.154Z", rev: "289098df" };
+    const BUILD_STAMP = { at: "2026-11-11T11:40:18.083Z", rev: "f95921c6" };
 
     /** Two digits, zero padded. */
     function pad2(value) {
@@ -3978,7 +4108,7 @@ body[data-ds-dark-theme] .wb_headerAction{
         };
       }, []);
 
-      return h(
+      const menu = h(
         'div',
         {
           ref,
@@ -4013,6 +4143,15 @@ body[data-ds-dark-theme] .wb_headerAction{
           ),
         ),
       );
+      // The menu can be opened from a card inside the scrolling sheet, whose
+      // transform/animation would otherwise become the containing block for
+      // `position:fixed`. A portal keeps the viewport coordinates literal.
+      // Mount inside the page (not body) so the menu inherits the page's
+      // `--wb-*` theme variables and native text size.
+      if (typeof document === 'undefined') return menu;
+      const host = document.querySelector('.wb_page') ?? document.querySelector('.wb_sSection') ?? document.body;
+      if (host === null || host === undefined) return menu;
+      return ReactDOM.createPortal(menu, host);
     }
 
     /**
@@ -5585,10 +5724,12 @@ body[data-ds-dark-theme] .wb_headerAction{
         return () => clearTimeout(timer);
       }, [notice]);
 
-      const patch = (id, values) => {
+      const patch = (id, values, touch = true) => {
         return run(
           updateNotes(boardKey, (current) =>
-            current.map((item) => (item.id === id ? { ...item, ...values, updatedAt: Date.now() } : item)),
+            current.map((item) =>
+              item.id === id ? { ...item, ...values, ...(touch ? { updatedAt: Date.now() } : {}) } : item,
+            ),
           ),
         );
       };
@@ -5660,7 +5801,7 @@ body[data-ds-dark-theme] .wb_headerAction{
           key: 'pin',
           label: item.pinned === true ? t('notes.unpin') : t('notes.pin'),
           glyph: h(IconPin, { size: 13 }),
-          onSelect: () => patch(item.id, { pinned: item.pinned !== true }),
+          onSelect: () => patch(item.id, { pinned: item.pinned !== true }, false),
         },
         { key: 'copy', label: t('notes.copy'), glyph: h(IconCopy, { size: 13 }), onSelect: () => copy(item) },
         {
@@ -5850,7 +5991,7 @@ body[data-ds-dark-theme] .wb_headerAction{
                         'div',
                         { className: 'wb_ix_readerActions' },
                         h('button', { type: 'button', className: 'wb_btn', onClick: () => startEdit(selected) }, t('surface.edit')),
-                        h('button', { type: 'button', className: 'wb_btn', onClick: () => patch(selected.id, { pinned: selected.pinned !== true }) }, selected.pinned === true ? t('notes.unpin') : t('notes.pin')),
+                        h('button', { type: 'button', className: 'wb_btn', onClick: () => patch(selected.id, { pinned: selected.pinned !== true }, false) }, selected.pinned === true ? t('notes.unpin') : t('notes.pin')),
                         h('button', { type: 'button', className: 'wb_btn', onClick: () => copy(selected) }, t('notes.copy')),
                         h('button', { type: 'button', className: 'wb_btn', onClick: () => convert(selected, selected.block === 'note' ? 'idea' : 'note') }, selected.block === 'note' ? t('notes.toIdea') : t('notes.toNote')),
                       ),
@@ -5939,6 +6080,12 @@ body[data-ds-dark-theme] .wb_headerAction{
             }
           }
           reminderNotifications.clear();
+          // The feed and its acknowledgement set are owned by this overlay too.
+          // Without clearing them a plugin unload (or a hot reload) keeps up to
+          // 400 announced ids and every queued toast alive in the discarded
+          // module for the life of the page.
+          reminderFeed.items = [];
+          announced.clear();
         };
       }, []);
       const items = reminderFeed.items;
@@ -6553,9 +6700,11 @@ body[data-ds-dark-theme] .wb_headerAction{
     }
 
     /** The sessions a chapter owns, newest first, each one a way back in. */
-    function SubSessionList({ t, board, child, facts, sessionSummaries, onOpenSession }) {
+    function SubSessionList({ t, board, child, facts, sessionSummaries, onOpenSession, onArchiveSession }) {
+      const [menu, setMenu] = useState(null);
       const sessions = facts.sessions;
       if (sessions.length === 0) return h('p', { className: 'wb_subEmpty' }, t('session.empty'));
+      const openMenu = (sessionId, at) => setMenu({ sessionId, at });
       return h(
         'div',
         { className: 'wb_subSessions' },
@@ -6581,12 +6730,44 @@ body[data-ds-dark-theme] .wb_headerAction{
                 event.stopPropagation();
                 onOpenSession(sessionId, board, child);
               },
+              onContextMenu: (event) => {
+                if (typeof onArchiveSession !== 'function') return;
+                event.preventDefault();
+                event.stopPropagation();
+                openMenu(sessionId, { x: event.clientX, y: event.clientY });
+              },
+              onKeyDown: (event) => {
+                if (typeof onArchiveSession !== 'function') return;
+                if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const box = event.currentTarget.getBoundingClientRect();
+                openMenu(sessionId, { x: box.right - 8, y: box.bottom + 4 });
+              },
             },
             h('span', { className: 'wb_subSessionNo' }, pad2(ordinal)),
             h('span', { className: 'wb_subSessionTitle' }, title),
             h('span', { className: 'wb_subSessionMeta' }, summary?.running === true ? t('session.running') : when),
           );
         }),
+        menu === null
+          ? null
+          : h(ContextMenu, {
+              at: menu.at,
+              items: [
+                {
+                  key: 'archive',
+                  label: t('session.archive'),
+                  glyph: h(IconArchive, { size: 13 }),
+                  onSelect: () => {
+                    const sessionId = menu.sessionId;
+                    setMenu(null);
+                    onArchiveSession(board, child, sessionId);
+                  },
+                },
+              ],
+              onClose: () => setMenu(null),
+            }),
       );
     }
 
@@ -6607,6 +6788,7 @@ body[data-ds-dark-theme] .wb_headerAction{
       onOpen,
       onOpenSession,
       onNewTalk,
+      onArchiveSession,
       onMenu,
       onToggleTodo,
     }) {
@@ -6718,7 +6900,7 @@ body[data-ds-dark-theme] .wb_headerAction{
                         h(IconPlus, { size: 11 }),
                       ),
                 ),
-                expanded ? h(SubSessionList, { t, board, child, facts: childFacts, sessionSummaries, onOpenSession }) : null,
+                expanded ? h(SubSessionList, { t, board, child, facts: childFacts, sessionSummaries, onOpenSession, onArchiveSession }) : null,
               );
             }),
           ),
@@ -6801,7 +6983,7 @@ body[data-ds-dark-theme] .wb_headerAction{
         h('div', { className: 'wb_sh_subsHead' }, h('span', null, t('shelf.recent')), h('span', null, pad2(recent.length))),
         recent.length === 0
           ? h('p', { className: 'wb_sh_recentEmpty' }, t('shelf.recentEmpty'))
-          : h(SubSessionList, { t, board, child: undefined, facts: { ...facts, sessions: recent }, sessionSummaries, onOpenSession }),
+          : h(SubSessionList, { t, board, child: undefined, facts: { ...facts, sessions: recent }, sessionSummaries, onOpenSession, onArchiveSession }),
       );
     }
 
@@ -7005,6 +7187,7 @@ body[data-ds-dark-theme] .wb_headerAction{
       onOpen,
       onOpenSession,
       onNewTalk,
+      onArchiveSession,
       onMenu,
       onConfigure,
       onToggleTodo,
@@ -7097,6 +7280,7 @@ body[data-ds-dark-theme] .wb_headerAction{
           onOpen,
           onOpenSession,
           onNewTalk,
+          onArchiveSession,
           onMenu,
           onToggleTodo,
         }),
@@ -7808,7 +7992,7 @@ body[data-ds-dark-theme] .wb_headerAction{
       const activePosition = activeBoard === undefined ? -1 : boards.findIndex((board) => board.id === activeBoard.id);
       const summary = fill(t('ledger.spaces'), { spaces: boards.length, due: dueToday, over: overdue, remind: reminders.length });
 
-      const run = (operation, key) => {
+      const run = (operation, key, failureTemplate = t('board.openFailed')) => {
         const token = typeof key === 'string' ? key : '';
         // Serialize only the same action. A session open elsewhere on the
         // ledger must not make a to-do tick or a second board unresponsive.
@@ -7820,7 +8004,7 @@ body[data-ds-dark-theme] .wb_headerAction{
           .then(() => (typeof operation === 'function' ? operation() : operation))
           .catch((error) => {
             if (seq !== runSeq.current) return;
-            setFailure(fill(t('board.openFailed'), { message: error instanceof Error ? error.message : String(error) }));
+            setFailure(fill(failureTemplate, { message: error instanceof Error ? error.message : String(error) }));
           })
           .finally(() => {
             if (token.length > 0) busyKeys.current.delete(token);
@@ -7842,6 +8026,37 @@ body[data-ds-dark-theme] .wb_headerAction{
       /** A session line opens that exact Session, not the newest one. */
       const openSession = (sessionId, board, child) =>
         run(() => onOpenSession(board, child, sessionId), sessionId);
+
+      /**
+       * Archive one recorded Session from its shelf row.
+       *
+       * `workspaces.archiveSession` is a global Session-id operation: it does
+       * not require the Session to belong to a Workspace, so it keeps working
+       * after board Sessions are created with `cwd` instead of `workspaceId`.
+       * A running Session is refused by the Host; the ordinary error strip
+       * reports that instead of silently stopping the work.
+       */
+      const archiveSession = (board, child, sessionId) => {
+        const key = boardKeyOf(board, child);
+        run(
+          async () => {
+            const ctx = pluginContext;
+            const workspaces = ctx === null || ctx === undefined ? undefined : ctx.get('workspaces');
+            if (workspaces === undefined || workspaces === null || typeof workspaces.archiveSession !== 'function') {
+              throw new Error(translate()('error.sessionsUnavailable'));
+            }
+            await workspaces.archiveSession(sessionId);
+            sessionLabels.delete(sessionId);
+            notifyLabels();
+            await forgetSession(key, sessionId);
+            const remaining = sessionListOf(store.current()?.sessions?.[key]).filter((id) => id !== sessionId);
+            if (remaining.length > 0) boardSessions.set(key, remaining[0]);
+            else boardSessions.delete(key);
+          },
+          `archive:${sessionId}`,
+          t('session.archiveFailed'),
+        );
+      };
 
       /** Return to the current Session, or the newest recorded workbench one. */
       const returnLatest = () => {
@@ -7934,6 +8149,7 @@ body[data-ds-dark-theme] .wb_headerAction{
                         onOpen: open,
                         onOpenSession: openSession,
                         onNewTalk: startTalk,
+                        onArchiveSession: archiveSession,
                         onMenu: (board, child, at) => setMenu({ board, child, at }),
                         onConfigure,
                         onToggleTodo: toggleTodo,
@@ -9242,7 +9458,13 @@ body[data-ds-dark-theme] .wb_headerAction{
         setBusy(true);
         onError('');
         fetchWithTimeout(`${API}/skills`, { headers: { 'cache-control': 'no-cache' } }, 15000)
-          .then((response) => (response.ok ? readJsonWithTimeout(response) : Promise.reject(new Error(`HTTP ${response.status}`))))
+          .then((response) => {
+            if (!response.ok) {
+              discardResponseBody(response);
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return readJsonWithTimeout(response);
+          })
           .then((payload) => {
             if (seq !== loadSeq.current) return;
             // `/skills` is a Host answer, not a local constant: a broken proxy
@@ -9528,13 +9750,20 @@ body[data-ds-dark-theme] .wb_headerAction{
 
       // Keep the target pointed at a board that still exists: deleting the board
       // being edited must not leave the block below addressing a dead key.
-      const keys = [];
-      for (const board of boards) {
-        keys.push({ key: board.id, label: board.name, board, child: undefined });
-        for (const child of Array.isArray(board.children) ? board.children : []) {
-          keys.push({ key: `${board.id}/${child.id}`, label: child.name, board, child });
+      // The whole section re-renders for local editor state (saved receipt,
+      // chapter, menu, confirmation); rebuilding the flattened board tree is
+      // only needed when the document's boards change. A profile with many
+      // sub-boards paid that allocation on every keystroke inside a field.
+      const keys = useMemo(() => {
+        const list = [];
+        for (const board of boards) {
+          list.push({ key: board.id, label: board.name, board, child: undefined });
+          for (const child of Array.isArray(board.children) ? board.children : []) {
+            list.push({ key: `${board.id}/${child.id}`, label: child.name, board, child });
+          }
         }
-      }
+        return list;
+      }, [boards]);
       const active = keys.find((item) => item.key === target) ?? keys[0];
       const activeKey = active === undefined ? '' : active.key;
 
@@ -9550,10 +9779,12 @@ body[data-ds-dark-theme] .wb_headerAction{
               setSaved(true);
               setError('');
             }
+            return true;
           })
           .catch((problem) => {
-            if (seq !== runSeq.current) return;
+            if (seq !== runSeq.current) return false;
             setError(fill(t('settings.saveFailed'), { message: problem instanceof Error ? problem.message : String(problem) }));
+            return false;
           });
       };
 
@@ -9573,6 +9804,65 @@ body[data-ds-dark-theme] .wb_headerAction{
       };
 
       /**
+       * Remove one board or child and every collection entry scoped to it.
+       *
+       * The Host prunes the same keys during normalization, but the optimistic
+       * copy must be honest immediately: otherwise a deleted child's prompt,
+       * skills and Session rows stay in the in-memory document until a reload,
+       * and a later board or Session reusing the key can inherit them.
+       * @param current - the live document.
+       * @param boardId - the board being changed.
+       * @param childId - the child to remove, or undefined to remove the board.
+       * @returns the next document.
+       */
+      const pruneBoardScope = (current, boardId, childId) => {
+        const key = childId === undefined ? boardId : `${boardId}/${childId}`;
+        const boards = current.boards
+          .filter((board) => childId !== undefined || board.id !== boardId)
+          .map((board) => {
+            if (childId === undefined || board.id !== boardId || !Array.isArray(board.children)) return board;
+            return { ...board, children: board.children.filter((child) => child.id !== childId) };
+          });
+        const prune = (bag) => {
+          const next = { ...(bag ?? {}) };
+          for (const name of Object.keys(next)) {
+            if (name === key || (childId === undefined && name.startsWith(`${key}/`))) delete next[name];
+          }
+          return next;
+        };
+        return {
+          boards,
+          settings: prune(current.settings),
+          sessions: prune(current.sessions),
+          todos: prune(current.todos),
+          notes: prune(current.notes),
+        };
+      };
+
+      /**
+       * Drop client-side caches that still point at a removed board or child.
+       *
+       * The document is the authority on which boards exist; keeping a deleted
+       * key in `boardSessions`/`sessionLabels` would retain the old Session id
+       * (and its label) for the rest of the page and could make the next open
+       * choose a Session that is no longer addressable.
+       * @param boardId - removed board id.
+       * @param childId - removed child id, or undefined for the whole board.
+       */
+      const dropBoardCache = (boardId, childId) => {
+        const dropped = new Set();
+        for (const key of [...boardSessions.keys()]) {
+          const matches = childId === undefined ? key === boardId || key.startsWith(`${boardId}/`) : key === `${boardId}/${childId}`;
+          if (!matches) continue;
+          const sessionId = boardSessions.get(key);
+          if (typeof sessionId === 'string') dropped.add(sessionId);
+          boardSessions.delete(key);
+        }
+        for (const sessionId of dropped) sessionLabels.delete(sessionId);
+        notifyLabels();
+      };
+
+      /**
        * Remove one board, and everything stored FOR that board.
        *
        * The Host prunes the same keys on write, but doing it here as well keeps
@@ -9580,26 +9870,21 @@ body[data-ds-dark-theme] .wb_headerAction{
        * write.
        */
       const deleteBoard = (boardId) => {
-        run(() =>
-          store.update((current) => {
-            const boards = current.boards.filter((board) => board.id !== boardId);
-            const settings = { ...(current.settings ?? {}) };
-            const sessions = { ...(current.sessions ?? {}) };
-            const todos = { ...(current.todos ?? {}) };
-            const notes = { ...(current.notes ?? {}) };
-            for (const bag of [settings, sessions, todos, notes]) {
-              for (const key of Object.keys(bag)) {
-                if (key === boardId || key.startsWith(`${boardId}/`)) delete bag[key];
-              }
-            }
-            // The Host prunes the same keys during normalization; doing it here
-            // keeps the optimistic copy (and any mounted to-do/note surface from
-            // the deleted board) from briefly reading records that no longer
-            // belong to a live board.
-            return { boards, settings, sessions, todos, notes };
-          }),
-        );
+        run(() => store.update((current) => pruneBoardScope(current, boardId))).then((saved) => {
+          if (saved) dropBoardCache(boardId);
+        });
         if (target === boardId || target.startsWith(`${boardId}/`)) setTarget('');
+        if (renaming !== null && renaming.boardId === boardId) setRenaming(null);
+      };
+
+      /** Remove one child and its scoped collection entries. */
+      const deleteChild = (boardId, childId) => {
+        const key = `${boardId}/${childId}`;
+        run(() => store.update((current) => pruneBoardScope(current, boardId, childId))).then((saved) => {
+          if (saved) dropBoardCache(boardId, childId);
+        });
+        setTarget((current) => (current === key ? boardId : current));
+        if (renaming !== null && renaming.boardId === boardId && renaming.childId === childId) setRenaming(null);
       };
 
       const createBoard = () => {
@@ -9733,18 +10018,7 @@ body[data-ds-dark-theme] .wb_headerAction{
                     setConfirming({
                       title: t('settings.boardDeleteChild'),
                       body: fill(t('settings.confirmDeleteChild'), { name: child.name }),
-                      run: () => {
-                        const key = `${board.id}/${child.id}`;
-                        patchBoard(board.id, (current) => ({
-                          children: (Array.isArray(current.children) ? current.children : []).filter(
-                            (item) => item.id !== child.id,
-                          ),
-                        }));
-                        // The deleted child may be the current configuration
-                        // target; otherwise the next render silently selects
-                        // the first board and later edits go somewhere else.
-                        setTarget((current) => (current === key ? board.id : current));
-                      },
+                      run: () => deleteChild(board.id, child.id),
                     }),
                 },
               ];
@@ -9953,6 +10227,7 @@ body[data-ds-dark-theme] .wb_headerAction{
       useLocaleVersion();
       const t = translate();
       const document = useDocument();
+      const sessionSummaries = useSessionSummaries();
       // A previous failed load also sets `loaded`; the presence of a document,
       // not the flag, is what makes the ledger safe to paint.
       const [status, setStatus] = useState(store.document !== null ? 'ready' : 'loading');
@@ -9975,6 +10250,28 @@ body[data-ds-dark-theme] .wb_headerAction{
         },
         [],
       );
+
+      /** Retire pre-`cwd` blank board Sessions exactly once per page session. */
+      const legacyBlankCleanup = useRef(false);
+
+      useEffect(() => {
+        if (legacyBlankCleanup.current || store.document === null) return;
+        const ctx = pluginContext;
+        if (ctx === null || ctx === undefined) return;
+        const workspaces = ctx.get('workspaces');
+        const workspaceSnapshot = workspaces?.list?.getSnapshot?.();
+        if (!Array.isArray(workspaceSnapshot?.items) || workspaceSnapshot.items.length === 0) return;
+        const sessions = ctx.get('sessions');
+        if (sessions?.list?.getSnapshot?.()?.byId === undefined) return;
+        legacyBlankCleanup.current = true;
+        retireLegacyBlankBoardSessions(ctx, store.current()).catch(() => {
+          /* a failed cleanup only leaves an old blank Session for the next open */
+        });
+        // The workspace snapshot becomes ready after the first paint; a later
+        // document change is not needed to retry because the flag stays false
+        // until both services have a usable snapshot.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [document, sessionSummaries]);
 
       useEffect(() => {
         let cancelled = false;

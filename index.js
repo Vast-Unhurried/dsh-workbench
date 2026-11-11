@@ -940,24 +940,6 @@ function updateDocument(change) {
   });
 }
 
-/**
- * Trim a document before it is stored: bounded to-do and note lists, each
- * ordered the way its surface reads it.
- * @param document - normalized document.
- * @returns the same document, trimmed.
- */
-function trimDocument(document) {
-  for (const [key, value] of Object.entries(document.todos)) {
-    if (!Array.isArray(value) || value.length === 0) delete document.todos[key];
-    else if (value.length > MAX_TODOS_PER_BOARD) document.todos[key] = value.slice(0, MAX_TODOS_PER_BOARD);
-  }
-  for (const [key, value] of Object.entries(document.notes)) {
-    if (!Array.isArray(value) || value.length === 0) delete document.notes[key];
-    else if (value.length > MAX_NOTES_PER_BOARD) document.notes[key] = value.slice(0, MAX_NOTES_PER_BOARD);
-  }
-  return document;
-}
-
 /** Split YAML-ish frontmatter from a SKILL.md body. */
 function splitFrontmatter(source) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
@@ -985,9 +967,22 @@ function oneLine(value) {
   const flat = text(value).replace(/\s+/g, " ").trim();
   if (flat.length === 0) return "";
   // CJK terminators end a sentence on their own; ASCII ones only do so before
-  // whitespace or the end, so "e.g." and "v1.2" do not split mid-clause.
+  // whitespace or the end. A period after a common abbreviation or an initial
+  // is not a sentence end: the live catalog includes descriptions such as
+  // "Lemo-Opuscar library (e.g. ...", which must not be cut at "e.g.".
   const cjk = flat.search(/[。．！？]/);
-  const ascii = flat.search(/[.!?](?=\s|$)/);
+  let ascii = -1;
+  for (const match of flat.matchAll(/[.!?](?=\s|$)/g)) {
+    // Only the punctuation and the few characters before it are needed to
+    // recognise an abbreviation or an initial. Slicing from the start of the
+    // description here made a hostile SKILL.md with thousands of periods
+    // quadratic in the file size while the skills route was being served.
+    const before = flat.slice(Math.max(0, match.index - 16), match.index + 1);
+    if (/(?:e\.g|i\.e|etc|vs|Mr|Mrs|Ms|Dr|No|Fig|approx)\.$/i.test(before)) continue;
+    if (/\b[A-Za-z]\.$/.test(before)) continue;
+    ascii = match.index;
+    break;
+  }
   const stop = [cjk, ascii].filter((at) => at >= 0).sort((left, right) => left - right)[0];
   const first = stop === undefined || stop < 0 ? flat : flat.slice(0, stop + 1);
   if (first.length <= 140) return first;
@@ -1066,13 +1061,18 @@ async function skillPathWithinRoots(file) {
       return false;
     }
     const local = resolve(candidate);
+    // Windows paths are case-insensitive even though `realpath()` preserves the
+    // spelling supplied by the caller. Comparing the canonical roots and target
+    // without case keeps a user skill under a different drive-letter casing
+    // discoverable, while realpath still resolves junctions and symlinks.
+    const canonical = (value) => (process.platform === "win32" ? value.toLowerCase() : value);
     // `resolve()` is lexical. A junction or symlink directory inside a user
     // skill root can point anywhere while its written path still starts with
     // the root, so containment is compared on real paths. Resolve each root
     // too: the root itself may legitimately be a link to a user-owned folder.
-    const target = await realpath(local);
+    const target = canonical(await realpath(local));
     for (const root of skillRoots()) {
-      const base = await realpath(root).catch(() => resolve(root));
+      const base = canonical(await realpath(root).catch(() => resolve(root)));
       if (target === base || target.startsWith(`${base}${sep}`)) return true;
     }
     return false;
@@ -1180,6 +1180,21 @@ function pinnedInstruction(document, boardKey) {
 }
 
 /**
+ * The user-level agent home the harness uses for agent skills.
+ *
+ * The shipped agent-skill provider reads `DSH_AGENTS_HOME` when it is set and
+ * otherwise `~/.agents`; skills installed through that provider must be
+ * discoverable here too, or a registry summary with a valid `user-agents`
+ * path is rejected by the containment check and never appears as a switch.
+ * @returns the agent home directory.
+ */
+function agentHome() {
+  const configured = process.env.DSH_AGENTS_HOME;
+  if (typeof configured === "string" && configured.length > 0) return configured;
+  return join(homedir(), ".agents");
+}
+
+/**
  * The directories an installed skill can live in: the harness user directories
  * plus the project-local ones for the serving working directory.
  * @returns absolute skill roots in precedence order.
@@ -1187,6 +1202,9 @@ function pinnedInstruction(document, boardKey) {
 function skillRoots() {
   return [
     join(harnessHome(), "skills"),
+    join(agentHome(), "skills"),
+    // Keep the older `$DSH_HOME/agents/skills` spelling as well: a profile that
+    // installed skills there must keep finding them.
     join(harnessHome(), "agents", "skills"),
     join(process.cwd(), ".dsh", "skills"),
     join(process.cwd(), ".agents", "skills"),
@@ -1381,6 +1399,27 @@ function sendFailure(res, status, code, message) {
   sendJson(res, status, { code, message });
 }
 
+/**
+ * Answer a request the Host trust fence rejected.
+ *
+ * These responses are produced before any route header helper runs, so they
+ * need the same defensive headers as a normal JSON answer. In particular
+ * `no-store` keeps a rejected credential from being cached by an intermediary.
+ * @param res - response owning the answer.
+ * @param rejection - the 401/403 status returned by the trust service.
+ */
+function sendTrustFailure(res, rejection) {
+  const message = rejection === 401 ? "unauthorized" : "forbidden";
+  res.statusCode = rejection;
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.setHeader("content-length", Buffer.byteLength(message, "utf8"));
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "DENY");
+  res.setHeader("referrer-policy", "no-referrer");
+  res.end(message);
+}
+
 /** Answer one font-route failure with the same defensive headers as a hit. */
 function sendFontFailure(res, status, message) {
   res.statusCode = status;
@@ -1440,7 +1479,23 @@ async function serveFont(req, res) {
     sendFontFailure(res, 404, "not found");
     return;
   }
+  const css = extname(target).toLowerCase() === ".css";
+  // The font binaries are immutable for a plugin version, but fonts.css is
+  // addressed by an unversioned path. It must revalidate after a plugin update,
+  // and an ETag makes that revalidation a 304 instead of re-sending 105 KB.
+  const cacheControl = css ? "no-cache" : "public, max-age=31536000, immutable";
+  const assetHeaders = {
+    "cache-control": cacheControl,
+    // These are static assets, never a document; a restrictive policy costs
+    // nothing and keeps a future navigation to a font path inert.
+    "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "cross-origin-resource-policy": "same-origin",
+  };
   let body;
+  let etag;
   try {
     // The font directory is bundled with the plugin, but a replaced symlink or
     // an accidentally huge file must not turn a font request into an arbitrary
@@ -1448,6 +1503,29 @@ async function serveFont(req, res) {
     const info = await lstat(target);
     if (info.isSymbolicLink() || !info.isFile() || info.size > MAX_FONT_BYTES) {
       sendFontFailure(res, 404, "not found");
+      return;
+    }
+    etag = `"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`;
+    const ifNoneMatch = req.headers?.["if-none-match"];
+    if (
+      typeof ifNoneMatch === "string" &&
+      ifNoneMatch.split(",").some((tag) => {
+        const value = tag.trim();
+        return value === "*" || value === etag || value === `W/${etag}`;
+      })
+    ) {
+      res.writeHead(304, { ...assetHeaders, etag });
+      res.end();
+      return;
+    }
+    if (req.method === "HEAD") {
+      res.writeHead(200, {
+        ...assetHeaders,
+        "content-type": type,
+        "content-length": info.size,
+        etag,
+      });
+      res.end();
       return;
     }
     body = await readFile(target);
@@ -1461,23 +1539,15 @@ async function serveFont(req, res) {
     sendFontFailure(res, 404, "not found");
     return;
   }
-  const css = extname(target).toLowerCase() === ".css";
   res.writeHead(200, {
+    ...assetHeaders,
     "content-type": type,
     "content-length": body.byteLength,
-    // The font binaries are immutable for a plugin version, but fonts.css is
-    // addressed by an unversioned path. Caching it for a year kept an old
-    // @font-face table after a plugin update; let it revalidate instead.
-    "cache-control": css ? "public, max-age=3600" : "public, max-age=31536000, immutable",
-    // These are static assets, never a document; a restrictive policy costs
-    // nothing and keeps a future navigation to a font path inert.
-    "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-    "x-content-type-options": "nosniff",
-    "x-frame-options": "DENY",
-    "referrer-policy": "no-referrer",
-    "cross-origin-resource-policy": "same-origin",
+    etag,
   });
-  res.end(req.method === "HEAD" ? undefined : body);
+  // HEAD requests returned above from the metadata path, so only GET reaches
+  // this point and always carries the body.
+  res.end(body);
 }
 
 /**
@@ -1614,6 +1684,10 @@ function refreshPinned(document) {
     const mode = modeOfKey(document, key);
     const pinned = pinnedInstruction(document, key);
     const active = pinned.text.length > 0 || pinned.skills.length > 0;
+    // One serialization per board, not one per Session. A board can own forty
+    // conversations, and a prompt may be 120 KB; rebuilding the same key for
+    // every Session made a save allocate the whole pin text over and over.
+    const pinKey = active ? JSON.stringify([pinned.text, pinned.skills]) : "";
     for (const sessionId of list) {
       boardKeyBySession.set(sessionId, key);
       if (legacy !== undefined) titleBySession.set(sessionId, legacy);
@@ -1622,12 +1696,14 @@ function refreshPinned(document) {
       const before = previous.get(sessionId);
       const same =
         before !== undefined &&
-        before.text === pinned.text &&
-        JSON.stringify(before.skills) === JSON.stringify(pinned.skills);
+        (before.key !== undefined
+          ? before.key === pinKey
+          : before.text === pinned.text && JSON.stringify(before.skills) === JSON.stringify(pinned.skills));
       pinnedBySession.set(sessionId, {
         text: pinned.text,
         skills: pinned.skills,
         cached: same ? before.cached : undefined,
+        key: pinKey,
       });
     }
   }
@@ -1699,6 +1775,18 @@ async function renderPinned(ctx, entry, catalog) {
 const repairedSessions = new Set();
 
 /**
+ * Sessions whose current title was already inspected and proved not to be one
+ * of the labels this plugin used to write.
+ *
+ * `reconcileLiveSessions()` runs on every document save, and `titles.get()`
+ * folds the Session's complete event log. Without this negative cache, a
+ * renamed to-do or note on a busy profile would pay that cost once per live
+ * workbench Session per save. A Session without any title yet is deliberately
+ * not marked: its title can arrive later and must still be checked.
+ */
+const titleChecked = new Set();
+
+/**
  * The text of the first human message in a Session.
  * @param session - the live Session.
  * @returns the text, or undefined when the Session has no human message yet.
@@ -1762,7 +1850,7 @@ function derivedSessionTitle(text) {
  * @param sessionId - its Session id.
  */
 function repairTitle(ctx, agent, sessionId) {
-  if (repairedSessions.has(sessionId)) return;
+  if (repairedSessions.has(sessionId) || titleChecked.has(sessionId)) return;
   const legacy = titleBySession.get(sessionId);
   if (legacy === undefined) return;
   const session = agent?.session;
@@ -1776,9 +1864,17 @@ function repairTitle(ctx, agent, sessionId) {
     // Only an explicit rename is the pin this repair exists for. A derived
     // title that happens to contain a board name is the Session's own.
     const source = typeof current === "string" ? undefined : current?.source?.kind;
-    if (source !== undefined && source !== "user") return;
+    if (source !== undefined && source !== "user") {
+      titleChecked.add(sessionId);
+      return;
+    }
     const normalized = normalizeTitleText(title);
-    if (!legacy.has(normalized) && !looksLikeBoardPath(normalized)) return;
+    if (!legacy.has(normalized) && !looksLikeBoardPath(normalized)) {
+      // The user chose a title that is not one of the old board labels; no
+      // later pass can turn it into one, so skip the expensive title fold.
+      titleChecked.add(sessionId);
+      return;
+    }
     const derived = derivedSessionTitle(firstHumanMessageText(session) ?? "");
     // Mark the Session repaired only after there is a title to write. A Session
     // without a human message yet must stay eligible for a later
@@ -1993,6 +2089,7 @@ function apply(ctx) {
           // gets fresh instances and must not inherit a stale retry entry.
           pendingAttach.delete(sessionId);
           repairedSessions.delete(sessionId);
+          titleChecked.delete(sessionId);
         }
         releaseAgentScope(agent);
       }),
@@ -2255,7 +2352,9 @@ function apply(ctx) {
     }
     for (const entry of pinnedBySession.values()) {
       if (!current()) return;
-      const key = JSON.stringify([entry.text, entry.skills]);
+      // `refreshPinned` already serialized this board's pin once; the fallback
+      // keeps a hand-built entry (a test or a future call site) correct.
+      const key = entry.key ?? JSON.stringify([entry.text, entry.skills]);
       const cached = warmRendered.get(key);
       if (cached !== undefined && now - cached.at < WARM_TTL) {
         // `Map.set` on an existing key does not move it to the end, so a
@@ -2350,6 +2449,7 @@ function apply(ctx) {
       modeBySession.clear();
       boardKeyBySession.clear();
       repairedSessions.clear();
+      titleChecked.clear();
       warmCatalog = undefined;
       warmCatalogAt = 0;
       warmRendered.clear();
@@ -2367,8 +2467,7 @@ function apply(ctx) {
     }
     const rejection = connection.requestRejection(req);
     if (rejection === undefined || rejection === null) return false;
-    res.statusCode = rejection;
-    res.end(rejection === 401 ? "unauthorized" : "forbidden");
+    sendTrustFailure(res, rejection);
     return true;
   };
 
@@ -2512,7 +2611,7 @@ function apply(ctx) {
         sendFailure(res, 400, "bad-request", "状态必须是一个包含 boards 数组的 JSON 对象。");
         return;
       }
-      const document = trimDocument(normalizeDocument(parsed));
+      const document = normalizeDocument(parsed);
       let epoch;
       try {
         epoch = await serializeWrite(() => writeDocument(document));
@@ -2543,7 +2642,7 @@ function apply(ctx) {
       sendJson(res, 200, { path: configured, exists, fallback: DEFAULT_WORKSPACE });
       return;
     }
-    if (path === "/workspace" && method === "POST") {
+    if ((path === "/workspace" || path === "/workspace/ensure") && method === "POST") {
       // Validate a path before Settings stores it: a relative path or one that
       // cannot be created would only fail later, when a board tried to open and
       // the cause would look like a broken session.
@@ -2559,6 +2658,10 @@ function apply(ctx) {
         sendFailure(res, 400, "bad-request", "请求体必须是 JSON。");
         return;
       }
+      // `ensureOnly` lets the browser ensure a board's working directory
+      // without registering it as a Workspace or changing the document's
+      // shared default. The normal POST keeps its Settings-save behaviour.
+      const ensureOnly = path === "/workspace/ensure" || parsed?.ensureOnly === true;
       const wanted = text(parsed?.path).trim();
       if (wanted.length === 0) {
         sendFailure(res, 400, "invalid-path", "请填写工作区目录。");
@@ -2601,6 +2704,10 @@ function apply(ctx) {
         sendFailure(res, 400, "invalid-path", `无法创建目录：${wanted}`);
         return;
       }
+      if (ensureOnly) {
+        sendJson(res, 200, { path: target, exists: true, fallback: DEFAULT_WORKSPACE });
+        return;
+      }
       // Persist it: this route is what Settings writes through, so the stored
       // document — not just this answer — must carry the new path. The read and
       // the write happen inside one queued turn, so a concurrent save cannot land
@@ -2608,7 +2715,7 @@ function apply(ctx) {
       let stored;
       try {
         stored = await updateDocument((current) =>
-          trimDocument(normalizeDocument({ ...current, workspace: target })),
+          normalizeDocument({ ...current, workspace: target }),
         );
       } catch (error) {
         if (error && error.code === "STATE_TOO_LARGE") {

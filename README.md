@@ -16,7 +16,7 @@ Each board is a real DSH Session that carries its own fixed prompts, skill selec
 
 ## What it does not own
 
-- The global appearance. The Workbench uses the shell's native `--dsw-*` tokens; install [dsh-jelly-skin](https://github.com/Vast-Unhurried/dsh-jelly-skin) for the system-wide Jelly Skin.
+- The global appearance. The Workbench uses the shell's native `--dsw-*` tokens; install the `@local/dsh-appearance-boot` bundle for the system-wide appearance skin.
 - The conversation transcript, composer, model selector or permission seat. Those belong to the shipped session UI; the Workbench only stores what a new conversation on a board should inherit.
 
 ## Requirements
