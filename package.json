@@ -1,8 +1,11 @@
 {
   "name": "@local/dsh-workbench",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "private": true,
   "type": "module",
+  "engines": {
+    "dsh": ">=0.2.2-rc.2 <0.3.0"
+  },
   "description": "Workbench: a private shelf of configured volumes for everyday, non-coding work. Boards, sub-boards, fixed prompts, skill selections, remembered model and reasoning choices, to-dos, reminders, notes and per-board working areas all stay intact; the workbench page and its Settings section share one press vocabulary — cloth covers, a row of mini cover fronts, an inner page and a day drawer.",
   "icon": "./icon.svg",
   "exports": {

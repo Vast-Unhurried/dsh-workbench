@@ -22,7 +22,7 @@ Each board is a real DSH Session that carries its own fixed prompts, skill selec
 
 ## Requirements
 
-DeepSeek Harness 0.2.2-rc.1 (Cordis 4.1) or a compatible build.
+DeepSeek Harness 0.2.2-rc.2 (Cordis 4.1) or a compatible build.
 
 ## Install
 

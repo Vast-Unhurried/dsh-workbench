@@ -3633,7 +3633,7 @@ body[data-ds-dark-theme] .wb_headerAction{
      * a page can keep running an older build than the one on disk — and nothing
      * on screen would say so. This stamp is printed in the ledger's footer.
      */
-    const BUILD_STAMP = { at: "2026-11-11T14:14:39.656Z", rev: "0d5281ba" };
+    const BUILD_STAMP = { at: "2026-11-12T13:01:20.186Z", rev: "0d541185" };
 
     /** Two digits, zero padded. */
     function pad2(value) {
@@ -4177,6 +4177,7 @@ body[data-ds-dark-theme] .wb_headerAction{
           className: 'wb_menu',
           role: 'menu',
           tabIndex: -1,
+          'data-window-drag-exclude': 'true',
           style: { left: `${place.x}px`, top: `${place.y}px` },
           onContextMenu: (event) => event.preventDefault(),
         },
@@ -4253,6 +4254,7 @@ body[data-ds-dark-theme] .wb_headerAction{
         'div',
         {
           className: 'wb_overlay',
+          'data-window-drag-exclude': 'true',
           onPointerDown: (event) => {
             if (event.target === event.currentTarget) onCancel();
           },
@@ -4821,7 +4823,7 @@ body[data-ds-dark-theme] .wb_headerAction{
         open
           ? h(
               'div',
-              { ref: popRef, className: 'wb_ix_calPop', role: 'dialog', 'aria-label': mode === 'datetime' ? t('todo.remind') : t('todo.due'), style: { left: `${place.left}px`, top: `${place.top}px` } },
+              { ref: popRef, className: 'wb_ix_calPop', role: 'dialog', 'data-window-drag-exclude': 'true', 'aria-label': mode === 'datetime' ? t('todo.remind') : t('todo.due'), style: { left: `${place.left}px`, top: `${place.top}px` } },
               h(
                 'div',
                 { className: 'wb_ix_calHead' },
@@ -6167,7 +6169,7 @@ body[data-ds-dark-theme] .wb_headerAction{
       }
       return h(
         'div',
-        { className: 'wb_toasts', role: 'status', 'aria-live': 'polite' },
+        { className: 'wb_toasts', role: 'status', 'data-window-drag-exclude': 'true', 'aria-live': 'polite' },
         visible.map((item) => {
           const due = dueState({ dueAt: item.dueAt });
           const note = typeof item.note === 'string' ? item.note.trim() : '';
@@ -7748,6 +7750,7 @@ body[data-ds-dark-theme] .wb_headerAction{
           {
             ref: panelRef,
             className: 'wb_sh_day',
+            'data-window-drag-exclude': 'true',
             role: 'dialog',
             'aria-modal': 'true',
             'aria-label': t('shelf.dayTitle'),
@@ -9304,6 +9307,7 @@ body[data-ds-dark-theme] .wb_headerAction{
                   {
                     className: 'wb_sPickMenu',
                     role: 'listbox',
+                    'data-window-drag-exclude': 'true',
                     'aria-label': t('prompt.title'),
                     'aria-multiselectable': 'true',
                     style: { left: `${menuPlace.left}px`, top: `${menuPlace.top}px`, width: `${menuPlace.width}px` },
@@ -9692,6 +9696,7 @@ body[data-ds-dark-theme] .wb_headerAction{
                 {
                   className: 'wb_sPickMenu',
                   role: 'listbox',
+                  'data-window-drag-exclude': 'true',
                   'aria-multiselectable': 'true',
                   style: { left: `${place.left}px`, top: `${place.top}px`, width: `${place.width}px` },
                 },
